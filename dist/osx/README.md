@@ -1,19 +1,25 @@
-# Building the OS X bundle
+# Building the macOS bundle
 
-Using [Homebrew](http://brew.sh) install build dependencies:
+Builds natively on both Apple Silicon (arm64) and Intel (x86_64). The bundle
+script auto-detects the Homebrew prefix (`/opt/homebrew` on Apple Silicon,
+`/usr/local` on Intel) and tags the resulting DMG with the host architecture
+(`Spek-arm64.dmg` or `Spek-x86_64.dmg`).
 
-    brew install automake coreutils git
+Using [Homebrew](https://brew.sh) install build dependencies:
+
+    brew install automake coreutils git pkg-config
     brew install ffmpeg wxwidgets
 
-Add a missing symlink:
+If `wx-config` cannot be found by autoconf, ensure Homebrew's bin is on PATH
+(`eval "$(brew shellenv)"`) and add the wxWidgets aclocal macro:
 
-    (cd /usr/local/share/aclocal && ln -s ../../Cellar/wxwidgets/3.2.1/share/wx/3.2/aclocal/wxwin.m4 .)
-
-Fix libbrotli loader_path:
-
-    install_name_tool -change "@loader_path/libbrotlicommon.1.dylib" "/usr/local/lib/libbrotlicommon.1.dylib" /usr/local/lib/libbrotlidec.1.dylib
-    install_name_tool -change "@loader_path/libbrotlicommon.1.dylib" "/usr/local/lib/libbrotlicommon.1.dylib" /usr/local/lib/libbrotlienc.1.dylib
+    BREW_PREFIX=$(brew --prefix)
+    WX_M4=$(find "$BREW_PREFIX"/Cellar/wxwidgets -name wxwin.m4 | head -1)
+    ln -sf "$WX_M4" "$BREW_PREFIX"/share/aclocal/
 
 Bundle Spek:
 
     ./dist/osx/bundle.sh
+
+The output is `dist/osx/Spek-<arch>.dmg`. Run on the architecture you intend
+to ship for; cross-compiling is not configured.

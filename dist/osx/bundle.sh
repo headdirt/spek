@@ -4,11 +4,28 @@ set -euo pipefail
 
 LANGUAGES="bs ca cs da de el eo es fi fr gl he hr hu id it ja ko lv nb nl nn pl pt_BR ru sk sr@latin sv th tr uk vi zh_CN zh_TW"
 
+# Detect Homebrew prefix: /opt/homebrew on Apple Silicon, /usr/local on Intel.
+if command -v brew >/dev/null 2>&1; then
+    BREW_PREFIX=$(brew --prefix)
+else
+    case "$(uname -m)" in
+        arm64) BREW_PREFIX=/opt/homebrew ;;
+        *)     BREW_PREFIX=/usr/local ;;
+    esac
+fi
+
+ARCH=$(uname -m)
+echo "Building for $ARCH using Homebrew prefix $BREW_PREFIX"
+
 cd $(dirname $0)/../..
 
 rm -f src/spek
 
-./autogen.sh && make -j8 || exit 1
+./autogen.sh && make -j$(sysctl -n hw.ncpu) || exit 1
+
+# Ensure .gmo translation catalogs are generated; the gettext-provided po
+# Makefile defaults to all-no, so they aren't built by the top-level make.
+make -C po update-gmo
 
 cd dist/osx
 rm -fr Spek.app
@@ -28,7 +45,12 @@ cp ../../lic/* Spek.app/Contents/Resources/lic/
 for lang in $LANGUAGES; do
     mkdir -p Spek.app/Contents/Resources/"$lang".lproj
     cp -v ../../po/"$lang".gmo Spek.app/Contents/Resources/"$lang".lproj/spek.mo
-    cp -v /usr/local/share/locale/"$lang"/LC_MESSAGES/wxstd-3.2.mo Spek.app/Contents/Resources/"$lang".lproj/ || echo "No WX translation for $lang"
+    wx_mo=$(ls "$BREW_PREFIX"/share/locale/"$lang"/LC_MESSAGES/wxstd-*.mo 2>/dev/null | head -1 || true)
+    if [ -n "$wx_mo" ]; then
+        cp -v "$wx_mo" Spek.app/Contents/Resources/"$lang".lproj/
+    else
+        echo "No WX translation for $lang"
+    fi
 done
 mkdir -p Spek.app/Contents/Resources/en.lproj
 
@@ -37,14 +59,31 @@ while [ ! -z "$BINS" ]; do
     NEWBINS=""
     for bin in $BINS; do
         echo "Updating dependendies for $bin."
-        LIBS=$(otool -L $bin | { grep /usr/local || test $? = 1; } | tr -d '\t' | awk '{print $1}')
+        LIBS=$(otool -L $bin | tail -n +2 | tr -d '\t' | awk '{print $1}')
         for lib in $LIBS; do
-            reallib=$(realpath $lib)
-            libname=$(basename $reallib)
-            install_name_tool -change $lib @executable_path/../Frameworks/$libname $bin
+            # Resolve the reference to a real source file. Skip system libs
+            # and already-rewritten @executable_path references.
+            case "$lib" in
+                @rpath/*)
+                    # Resolve via Homebrew's lib dir — that's where bottles
+                    # land, and brew dylibs typically rpath into it.
+                    candidate="$BREW_PREFIX/lib/${lib#@rpath/}"
+                    [ -e "$candidate" ] || continue
+                    src="$candidate"
+                    ;;
+                /opt/homebrew/*|/usr/local/*)
+                    src="$lib"
+                    ;;
+                *)
+                    continue
+                    ;;
+            esac
+            reallib=$(realpath "$src")
+            libname=$(basename "$reallib")
+            install_name_tool -change "$lib" @executable_path/../Frameworks/$libname $bin
             if [ ! -f Spek.app/Contents/Frameworks/$libname ]; then
                 echo "\tBundling $reallib."
-                cp $reallib Spek.app/Contents/Frameworks/
+                cp "$reallib" Spek.app/Contents/Frameworks/
                 chmod +w Spek.app/Contents/Frameworks/$libname
                 install_name_tool -id @executable_path/../Frameworks/$libname Spek.app/Contents/Frameworks/$libname
                 NEWBINS="$NEWBINS Spek.app/Contents/Frameworks/$libname"
@@ -54,10 +93,18 @@ while [ ! -z "$BINS" ]; do
     BINS="$NEWBINS"
 done
 
+# install_name_tool invalidates the ad-hoc signature linkers now embed by
+# default. On Apple Silicon, an invalid signature makes dyld kill the process
+# at load (SIGKILL "Code Signature Invalid"). Re-sign every Mach-O in the
+# bundle ad-hoc so it loads.
+echo "Re-signing bundle (ad-hoc)..."
+codesign --force --sign - Spek.app/Contents/Frameworks/*.dylib
+codesign --force --sign - Spek.app/Contents/MacOS/Spek
+
 # Make DMG image
 VOLUME_NAME=Spek
 DMG_APP=Spek.app
-DMG_FILE=$VOLUME_NAME.dmg
+DMG_FILE=$VOLUME_NAME-$ARCH.dmg
 MOUNT_POINT=$VOLUME_NAME.mounted
 
 rm -f $DMG_FILE
