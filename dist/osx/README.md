@@ -7,8 +7,7 @@ script auto-detects the Homebrew prefix (`/opt/homebrew` on Apple Silicon,
 
 Using [Homebrew](https://brew.sh) install build dependencies:
 
-    brew install automake coreutils git pkg-config
-    brew install ffmpeg wxwidgets
+    brew install automake coreutils git pkg-config ffmpeg wxwidgets
 
 If `wx-config` cannot be found by autoconf, ensure Homebrew's bin is on PATH
 (`eval "$(brew shellenv)"`) and add the wxWidgets aclocal macro:
