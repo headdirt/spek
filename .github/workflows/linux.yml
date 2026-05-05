@@ -27,7 +27,7 @@ jobs:
         run: |
           sudo apt-get update
           sudo apt-get install -y --no-install-recommends \
-            build-essential autoconf automake libtool pkg-config gettext \
+            build-essential autoconf automake libtool pkg-config gettext autopoint \
             libavcodec-dev libavformat-dev libavutil-dev \
             libwxgtk3.2-dev wx-common
 
