@@ -29,7 +29,7 @@ jobs:
           sudo apt-get install -y --no-install-recommends \
             build-essential autoconf automake libtool pkg-config gettext autopoint \
             libavcodec-dev libavformat-dev libavutil-dev \
-            libwxgtk3.2-dev wx-common
+            libwxgtk3.2-dev wx-common xvfb
 
       - name: Build
         run: |
@@ -40,7 +40,7 @@ jobs:
       - name: Smoke test
         run: |
           file src/spek
-          ./src/spek --version
+          xvfb-run -a ./src/spek --version
 
       - name: Package binary
         run: |
